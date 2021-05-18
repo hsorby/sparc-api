@@ -1,4 +1,7 @@
 import base64
+import json
+import logging
+import os
 from threading import Lock
 from datetime import datetime, timedelta
 
@@ -9,17 +12,15 @@ from flask import Flask, abort, jsonify, request
 from flask_cors import CORS
 from flask_marshmallow import Marshmallow
 from pennsieve import Pennsieve
-# from app.config import Config
-from app.mapstate import MapState
 from pennsieve.base import UnauthorizedException as PSUnauthorizedException
 
 from app.config import Config
+from app.mapstate import MapState
+from app.process_kb_results import process_kb_results, create_filter_request, create_facet_query
 from app.serializer import ContactRequestSchema
 
 from scripts.email_sender import EmailSender
-from app.process_kb_results import *
 from requests.auth import HTTPBasicAuth
-import os
 
 
 app = Flask(__name__)
@@ -140,10 +141,10 @@ def contact():
 def create_presigned_url(expiration=3600):
     bucket_name = "pennsieve-prod-discover-publish-use1"
     key = request.args.get("key")
-    contentType = request.args.get("contentType") or "application/octet-stream"
+    content_type = request.args.get("contentType") or "application/octet-stream"
     response = s3.generate_presigned_url(
         "get_object",
-        Params={"Bucket": bucket_name, "Key": key, "RequestPayer": "requester", "ResponseContentType": contentType},
+        Params={"Bucket": bucket_name, "Key": key, "RequestPayer": "requester", "ResponseContentType": content_type},
         ExpiresIn=expiration,
     )
 
@@ -473,10 +474,10 @@ def authenticate_biolucida():
         bl.set_token(content['token'])
 
 
-#get the share link for the current map content
+# Get the share link for the current map content.
 @app.route("/map/getshareid", methods=["POST"])
 def get_share_link():
-    #Do not commit to database when testing
+    # Do not commit to database when testing.
     commit = True
     if app.config["TESTING"]:
         commit = False
@@ -491,7 +492,7 @@ def get_share_link():
         abort(404, description="Database not available")
 
 
-#get the map state using the share link id
+# Get the map state using the share link id.
 @app.route("/map/getstate", methods=["POST"])
 def get_map_state():
     if mapstate:
@@ -505,10 +506,11 @@ def get_map_state():
     else:
         abort(404, description="Database not available")
 
+
 @app.route("/tasks", methods=["POST"])
 def create_wrike_task():
     json_data = request.get_json()
-    if json_data and 'title' in json_data and 'description' in json_data :
+    if json_data and 'title' in json_data and 'description' in json_data:
         title = json_data["title"]
         description = json_data["description"]
         hed = {'Authorization': 'Bearer ' + Config.WRIKE_TOKEN}
@@ -540,6 +542,7 @@ def create_wrike_task():
             return resp.json()
     else:
         abort(400, description="Missing title or description")
+
 
 @app.route("/mailchimp", methods=["POST"])
 def subscribe_to_mailchimp():
